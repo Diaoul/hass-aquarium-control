@@ -1,0 +1,357 @@
+blueprint:
+  name: 🐠 Aquarium Control
+  description: |
+    Intelligent aquarium control with synchronized lighting and CO2 injection, smooth transitions, and daily schedules.
+
+    **Required Helper Entities:**
+    Before using this blueprint, create these input helpers:
+    - Input Datetime (time only) for daily start time
+    - Input Number (4-12 hours, step 0.5) for total light duration
+    - Input Number (1-100%, step 1) for maximum brightness
+
+    **Features:**
+    - 🌅 Sunrise/sunset simulation with gradual brightness transitions
+    - ☀️ Dashboard-controlled brightness (percentage-based)
+    - 📅 Dashboard-controlled daily schedule
+    - ⏱️ Configurable transition durations
+    - 🔧 Maintenance mode for tank work (full brightness override, CO2 off)
+    - 🫧 CO2 injection control synchronized with lighting
+    - ⏰ CO2 time offset (default: 60 min before lights)
+    - 🔄 Smooth 60-second incremental updates (reliable for Zigbee lights)
+    - 💾 Automatic state recovery after Home Assistant restarts
+    - 🎛️ Support for multiple synchronized lights
+    - 🔌 Automatic availability detection and recovery
+
+    **How it works:**
+    1. CO2 turns on at configured offset (default: 60 min before light)
+    2. Light fades in gradually from min to max brightness over transition duration
+    3. Stays at max brightness (total duration minus 2× transition duration)
+    4. Fades out gradually back to off over transition duration
+    5. CO2 turns off at same offset before light ends
+    6. Repeats every day at the configured start time
+
+    **Maintenance mode:** Toggle to full brightness for feeding/cleaning, CO2 turns off for safety, then resume normal schedule.
+  domain: automation
+  input:
+    light_and_schedule:
+      name: Light & Schedule
+      icon: mdi:lightbulb-clock
+      collapsed: false
+      input:
+        light_entities:
+          name: 💡 Light Entities
+          description: The aquarium lights to control
+          selector:
+            entity:
+              filter:
+                - domain: light
+              multiple: true
+
+        daily_start_time:
+          name: 🌅 Daily Start Time Entity
+          description: Input datetime helper (time only) for when lights start fading in
+          selector:
+            entity:
+              filter:
+                - domain: input_datetime
+
+        total_duration:
+          name: ⏱️ Total Light Duration Entity
+          description: Input number helper for total light duration in hours
+          selector:
+            entity:
+              filter:
+                - domain: input_number
+
+        transition_duration:
+          name: 🌄 Transition Duration
+          description: Duration for fade-in and fade-out (sunrise/sunset simulation)
+          default:
+            hours: 0
+            minutes: 30
+            seconds: 0
+          selector:
+            duration:
+              enable_day: false
+
+    brightness_settings:
+      name: Brightness Settings
+      icon: mdi:brightness-6
+      collapsed: true
+      input:
+        max_brightness:
+          name: ☀️ Maximum Brightness Entity
+          description: Input number helper for maximum brightness percentage (1-100%)
+          selector:
+            entity:
+              filter:
+                - domain: input_number
+
+        min_brightness:
+          name: 🌙 Minimum Brightness
+          description: Starting brightness percentage for sunrise simulation
+          default: 1
+          selector:
+            number:
+              min: 1
+              max: 20
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
+
+        light_transition:
+          name: 🌊 Light Transition Duration
+          description: Smooth transition time for brightness changes. Set to 0 if your lights don't support transitions.
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 20
+              step: 1
+              mode: slider
+              unit_of_measurement: "s"
+
+    maintenance_mode:
+      name: Maintenance Mode
+      icon: mdi:wrench
+      collapsed: true
+      input:
+        maintenance_mode_toggle:
+          name: 🔧 Maintenance Mode Toggle
+          description: When ON, overrides schedule and sets lights to full brightness for tank maintenance
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - input_boolean
+                    - binary_sensor
+              multiple: false
+
+    co2_control:
+      name: CO2 Control
+      icon: mdi:molecule-co2
+      collapsed: true
+      input:
+        co2_switch:
+          name: 🫧 CO2 Switch
+          description: CO2 injection switch that turns on/off synchronized with the light schedule
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - switch
+                    - input_boolean
+              multiple: false
+
+        co2_offset:
+          name: ⏱️ CO2 Time Offset
+          description: Time offset for CO2 on/off relative to light schedule. Negative values turn CO2 on BEFORE lights (recommended -60 min for CO2 buildup before photosynthesis)
+          default:
+            hours: -1
+            minutes: 0
+            seconds: 0
+          selector:
+            duration:
+              enable_day: false
+
+variables:
+  # Input bindings
+  light_entities: !input light_entities
+  daily_start_time_entity: !input daily_start_time
+  total_duration_entity: !input total_duration
+  max_brightness_entity: !input max_brightness
+  transition_duration: !input transition_duration
+  min_brightness_pct: !input min_brightness
+  light_transition: !input light_transition
+  maintenance_mode_toggle: !input maintenance_mode_toggle
+
+  # Extract values from helper entities
+  daily_start_time: "{{ states(daily_start_time_entity) }}"
+  total_duration_hours: "{{ states(total_duration_entity) | float(9) }}"
+
+  # Convert brightness from percentage (user input) to 0-255 scale (internal HA format)
+  max_brightness: "{{ (states(max_brightness_entity) | int(100) * 2.55) | round(0) | int }}"
+  min_brightness: "{{ (min_brightness_pct * 2.55) | round(0) | int }}"
+
+  # Convert durations to seconds for calculations
+  transition_duration_seconds: "{{ timedelta(**transition_duration).total_seconds() | int }}"
+  total_duration_seconds: "{{ (total_duration_hours * 3600) | int }}"
+  total_cycle_seconds: "{{ total_duration_seconds }}"
+  # Calculate duration at max brightness (total minus fade-in and fade-out)
+  duration_at_max_seconds: "{{ [total_duration_seconds - (2 * transition_duration_seconds), 0] | max }}"
+
+  # Check if maintenance mode is active
+  maintenance_mode_active: >-
+    {{ maintenance_mode_toggle | length > 0 and is_state(maintenance_mode_toggle, 'on') }}
+
+  # Calculate elapsed time from daily start
+  # If we're before today's start time, check yesterday's cycle
+  elapsed_seconds: >-
+    {% set start_today = today_at(daily_start_time) %}
+    {% set elapsed = (now() - start_today).total_seconds() %}
+    {% if elapsed < 0 %}
+      {% set start_yesterday = start_today - timedelta(days=1) %}
+      {{ (now() - start_yesterday).total_seconds() }}
+    {% else %}
+      {{ elapsed }}
+    {% endif %}
+
+  # Calculate target brightness based on time and maintenance mode (0-255 scale)
+  target_brightness: >-
+    {% if maintenance_mode_active %}
+      255
+    {% else %}
+      {% set e = elapsed_seconds | float(0) %}
+      {% set t = transition_duration_seconds | float(0) %}
+      {% set d = duration_at_max_seconds | float(0) %}
+      {% set total = (2 * t + d) %}
+      {% set min_b = min_brightness | int %}
+      {% set max_b = max_brightness | int %}
+
+      {% if e < 0 or e >= total %}
+        0
+      {% elif e < t %}
+        {{ [(min_b + (max_b - min_b) * (e / [t, 1] | max)) | int, 1] | max }}
+      {% elif e < (t + d) %}
+        {{ max_b }}
+      {% else %}
+        {% set fade_elapsed = e - t - d %}
+        {{ (min_b + (max_b - min_b) * (1 - fade_elapsed / [t, 1] | max)) | int }}
+      {% endif %}
+    {% endif %}
+
+  # CO2 control variables
+  co2_switch: !input co2_switch
+  co2_offset: !input co2_offset
+
+  # Convert CO2 offset to seconds
+  co2_offset_seconds: "{{ timedelta(**co2_offset).total_seconds() | int }}"
+
+  # Calculate CO2 duration
+  # CO2 starts co2_offset before light starts
+  # CO2 ends co2_offset before light ends
+  # Duration = total_cycle_seconds (same as light cycle)
+  co2_duration_seconds: "{{ total_cycle_seconds }}"
+
+  # Calculate elapsed time from CO2 start (light start + co2_offset)
+  # CO2 offset is negative, so this is earlier than light start
+  elapsed_from_co2_start: >-
+    {% set light_start_today = today_at(daily_start_time) %}
+    {% set co2_start_today = light_start_today + timedelta(seconds=co2_offset_seconds) %}
+    {% set elapsed = (now() - co2_start_today).total_seconds() %}
+    {% if elapsed < 0 %}
+      {# Before today's CO2 start, check yesterday's cycle #}
+      {% set co2_start_yesterday = co2_start_today - timedelta(days=1) %}
+      {{ (now() - co2_start_yesterday).total_seconds() }}
+    {% else %}
+      {{ elapsed }}
+    {% endif %}
+
+  # Determine if CO2 should be ON (off during maintenance for safety)
+  co2_should_be_on: >-
+    {% set elapsed = elapsed_from_co2_start | float(0) %}
+    {% set duration = co2_duration_seconds | float(0) %}
+    {{ not maintenance_mode_active and elapsed >= 0 and elapsed < duration }}
+
+trigger:
+  # Update brightness every 60 seconds
+  - trigger: time_pattern
+    minutes: "/1"
+    id: periodic_update
+
+  # HA restart recovery
+  - trigger: homeassistant
+    event: start
+    id: ha_start
+
+  # Light becomes available after being offline
+  - trigger: state
+    entity_id: !input light_entities
+    from:
+      - unavailable
+      - unknown
+    id: light_available
+
+  # Maintenance mode changes
+  - trigger: state
+    entity_id: !input maintenance_mode_toggle
+    id: maintenance_mode_change
+
+  # Helper entity changes (for responsive dashboard control)
+  - trigger: state
+    entity_id: !input daily_start_time
+    id: start_time_change
+
+  - trigger: state
+    entity_id: !input total_duration
+    id: duration_change
+
+  - trigger: state
+    entity_id: !input max_brightness
+    id: brightness_change
+
+  # CO2 switch becomes available after being offline
+  - trigger: state
+    entity_id: !input co2_switch
+    from:
+      - unavailable
+      - unknown
+    id: co2_available
+
+condition: []
+
+action:
+  # Update all lights
+  - repeat:
+      for_each: "{{ light_entities }}"
+      sequence:
+        # Skip unavailable lights
+        - condition: "{{ states(repeat.item) not in ['unavailable', 'unknown'] }}"
+
+        # Apply brightness based on target_brightness
+        - if:
+            - "{{ target_brightness == 0 }}"
+          then:
+            # Only turn off if currently on
+            - if:
+                - "{{ is_state(repeat.item, 'on') }}"
+              then:
+                - service: light.turn_off
+                  target:
+                    entity_id: "{{ repeat.item }}"
+          else:
+            # Turn on with calculated brightness (maintenance, fade-in, max, or fade-out)
+            # Only call service if light is off or brightness differs
+            - if:
+                - "{{ is_state(repeat.item, 'off') or state_attr(repeat.item, 'brightness') | int(0) != target_brightness }}"
+              then:
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ repeat.item }}"
+                  data:
+                    brightness: "{{ target_brightness }}"
+                    transition: "{{ light_transition }}"
+
+  # Update CO2 switch (if configured and available)
+  - if:
+      - "{{ co2_switch | length > 0 and states(co2_switch) not in ['unavailable', 'unknown'] }}"
+    then:
+      # Turn CO2 on if needed
+      - if:
+          - "{{ co2_should_be_on and is_state(co2_switch, 'off') }}"
+        then:
+          - service: homeassistant.turn_on
+            target:
+              entity_id: "{{ co2_switch }}"
+
+      # Turn CO2 off if needed
+      - if:
+          - "{{ not co2_should_be_on and is_state(co2_switch, 'on') }}"
+        then:
+          - service: homeassistant.turn_off
+            target:
+              entity_id: "{{ co2_switch }}"
+
+mode: single
