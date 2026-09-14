@@ -173,6 +173,15 @@ variables:
   maintenance_mode_toggle: !input maintenance_mode_toggle
 
   # Resolve the light target to a flat list of light entity ids.
+  #
+  # Home Assistant has no helper that expands a target into entities, so this
+  # is hand-rolled. It exists only so the action below can compare each light
+  # against its own current brightness; without that per-light check the
+  # blueprint would re-send a command to every light every 60 seconds, which is
+  # what floods Zigbee networks. If you ever drop the per-light comparison,
+  # delete this and pass `target: !input light_entities` straight to the action
+  # instead, which is the idiomatic form.
+  #
   # Accepts a plain entity id or list (as stored by older versions of this
   # blueprint) as well as the entity/device/area/floor/label target dict.
   light_entities: >-
@@ -336,7 +345,8 @@ conditions:
     value_template: "{{ start_time_available }}"
 
 actions:
-  # Update all lights
+  # Update each light individually, so a light already at the target brightness
+  # is left alone rather than being re-commanded every 60 seconds
   - repeat:
       for_each: "{{ light_entities }}"
       sequence:
