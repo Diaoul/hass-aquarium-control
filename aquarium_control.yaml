@@ -308,7 +308,8 @@ action:
       for_each: "{{ light_entities }}"
       sequence:
         # Skip unavailable lights
-        - condition: "{{ states(repeat.item) not in ['unavailable', 'unknown'] }}"
+        - condition: template
+          value_template: "{{ states(repeat.item) not in ['unavailable', 'unknown'] }}"
 
         # Apply brightness based on target_brightness
         - if:
