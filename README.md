@@ -1,6 +1,6 @@
 # 🐠 Aquarium Control Blueprint
 
-**Version 1.0**
+**Version 1.1**
 
 A smart, reliable Home Assistant blueprint for automated aquarium lighting with sunrise/sunset simulation and synchronized CO2 injection.
 
@@ -20,10 +20,13 @@ A smart, reliable Home Assistant blueprint for automated aquarium lighting with 
 - 💾 **State Recovery** - Automatically recovers correct state after Home Assistant restarts
 - 🎛️ **Multiple Lights** - Support for controlling multiple synchronized light entities
 - 🔌 **Availability Handling** - Automatically detects and recovers when lights or CO2 switch come back online
+- 🛟 **Fault Tolerant** - One unresponsive light never blocks the rest of the tank
 
 ## 📦 Installation
 
 Click the button above to import the blueprint directly into your Home Assistant.
+
+**Requires Home Assistant 2024.10 or newer.**
 
 ## 🔧 Required Helper Entities
 
@@ -92,8 +95,10 @@ The blueprint creates a natural lighting cycle for your aquarium:
 **Transition Behavior:**
 - At cycle start: Lights instantly turn on to minimum brightness, then smoothly fade to maximum
 - During cycle: Smooth brightness changes every minute with gentle 5-second transitions
-- At cycle end: Lights smoothly fade to minimum brightness, then instantly turn off
+- At cycle end: Lights smoothly fade to minimum brightness, then transition off
 - This creates natural sunrise/sunset simulation while ensuring lights are completely off when not in use
+
+If your total duration is shorter than two transitions, the transition is clamped to half the total duration so the cycle never runs longer than you configured.
 
 **Maintenance Mode:**
 - When toggled on, overrides schedule and sets lights to full brightness
@@ -160,6 +165,8 @@ Select your input_boolean in the **Maintenance Mode Toggle** field.
 - **Zigbee Reliability:** 60-second updates prevent command flooding that can cause Zigbee issues
 - **Phase Calculation:** Recalculates current phase and brightness on every update for accuracy
 - **Availability Handling:** Skips unavailable devices and automatically syncs when they come back online
+- **Fault Tolerance:** A light that fails to respond does not block the remaining lights or the CO2 switch in the same update
+- **Helper Fallback:** If the start time helper is unavailable, the schedule falls back to 08:00 instead of failing every update
 
 ## 🤝 Support
 
