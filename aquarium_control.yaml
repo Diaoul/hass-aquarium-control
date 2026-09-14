@@ -32,6 +32,8 @@ blueprint:
 
     **Maintenance mode:** Toggle to full brightness for feeding/cleaning, CO2 turns off for safety, then resume normal schedule.
   domain: automation
+  homeassistant:
+    min_version: 2024.10.0
   source_url: https://github.com/Diaoul/hass-aquarium-control/blob/main/aquarium_control.yaml
   input:
     light_and_schedule:
@@ -169,10 +171,11 @@ variables:
   maintenance_mode_toggle: !input maintenance_mode_toggle
 
   # Extract values from helper entities
-  # Fall back to a sane default so an unavailable helper cannot break every run
+  # The placeholder keeps today_at() from raising while variables render; the
+  # run is aborted by the start_time_available condition before it is ever used
+  start_time_available: "{{ has_value(daily_start_time_entity) }}"
   daily_start_time: >-
-    {% set value = states(daily_start_time_entity) %}
-    {{ value if value not in ['unknown', 'unavailable', 'None'] else '08:00:00' }}
+    {{ states(daily_start_time_entity) if start_time_available else '00:00:00' }}
   total_duration_hours: "{{ states(total_duration_entity) | float(9) }}"
 
   # Convert brightness from percentage (user input) to 0-255 scale (internal HA format)
@@ -312,7 +315,10 @@ triggers:
       - unknown
     id: co2_available
 
-conditions: []
+conditions:
+  # Never run on a placeholder schedule if the start time helper is missing
+  - condition: template
+    value_template: "{{ start_time_available }}"
 
 actions:
   # Update all lights
@@ -321,7 +327,7 @@ actions:
       sequence:
         # Skip unavailable lights
         - condition: template
-          value_template: "{{ states(repeat.item) not in ['unavailable', 'unknown'] }}"
+          value_template: "{{ has_value(repeat.item) }}"
 
         # Apply brightness based on target_brightness
         - if:
@@ -353,7 +359,7 @@ actions:
 
   # Update CO2 switch (if configured and available)
   - if:
-      - "{{ co2_switch | length > 0 and states(co2_switch) not in ['unavailable', 'unknown'] }}"
+      - "{{ co2_switch | length > 0 and has_value(co2_switch) }}"
     then:
       # Turn CO2 on if needed
       - if:
