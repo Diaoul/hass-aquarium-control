@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-14
+
+### Added
+
+- Lights can now be selected by area, device, floor or label as well as by
+  individual entity. Existing configurations keep working unchanged.
+- `allow_negative` on the CO2 offset selector, so the negative offset the
+  blueprint depends on is actually expressible in the UI
+- `homeassistant.min_version`, declaring the Home Assistant 2024.10 requirement
+  that the current syntax implies
+
+### Changed
+
+- Use `has_value()` for availability checks instead of comparing states against
+  a hand-written unavailable/unknown list
+- An unavailable start time helper now aborts the run via a condition, rather
+  than falling back to 08:00 and driving the tank on the wrong schedule
+- Removed the light availability trigger, which cannot accept a target. Lights
+  coming back online are picked up by the next 60-second update instead.
+
 ## [1.1.0] - 2026-09-14
 
 ### Fixed

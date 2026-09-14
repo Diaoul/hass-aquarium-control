@@ -42,13 +42,14 @@ blueprint:
       collapsed: false
       input:
         light_entities:
-          name: 💡 Light Entities
-          description: The aquarium lights to control
+          name: 💡 Lights
+          description: >-
+            The aquarium lights to control. Pick individual lights, or a whole
+            area, device, floor or label.
           selector:
-            entity:
-              filter:
+            target:
+              entity:
                 - domain: light
-              multiple: true
 
         daily_start_time:
           name: 🌅 Daily Start Time Entity
@@ -158,10 +159,11 @@ blueprint:
           selector:
             duration:
               enable_day: false
+              allow_negative: true
 
 variables:
   # Input bindings
-  light_entities: !input light_entities
+  light_target: !input light_entities
   daily_start_time_entity: !input daily_start_time
   total_duration_entity: !input total_duration
   max_brightness_entity: !input max_brightness
@@ -169,6 +171,30 @@ variables:
   min_brightness_pct: !input min_brightness
   light_transition: !input light_transition
   maintenance_mode_toggle: !input maintenance_mode_toggle
+
+  # Resolve the light target to a flat list of light entity ids.
+  # Accepts a plain entity id or list (as stored by older versions of this
+  # blueprint) as well as the entity/device/area/floor/label target dict.
+  light_entities: >-
+    {% set t = light_target %}
+    {% set t = {'entity_id': [t]} if t is string
+               else ({'entity_id': t | list} if (t is sequence and t is not mapping) else t) %}
+    {% set ent = t.entity_id | default([], true) %}
+    {% set ent = [ent] if ent is string else ent | list %}
+    {% set dev = t.device_id | default([], true) %}
+    {% set dev = [dev] if dev is string else dev | list %}
+    {% set are = t.area_id | default([], true) %}
+    {% set are = [are] if are is string else are | list %}
+    {% set lab = t.label_id | default([], true) %}
+    {% set lab = [lab] if lab is string else lab | list %}
+    {% set flo = t.floor_id | default([], true) %}
+    {% set flo = [flo] if flo is string else flo | list %}
+    {{ (ent
+        + (dev | map('device_entities') | sum(start=[]) | list)
+        + (are | map('area_entities') | sum(start=[]) | list)
+        + (lab | map('label_entities') | sum(start=[]) | list)
+        + (flo | map('floor_areas') | sum(start=[]) | map('area_entities') | sum(start=[]) | list))
+       | select('match', 'light\.') | unique | list }}
 
   # Extract values from helper entities
   # The placeholder keeps today_at() from raising while variables render; the
@@ -274,17 +300,6 @@ triggers:
   - trigger: homeassistant
     event: start
     id: ha_start
-
-  # Light becomes available after being offline
-  - trigger: state
-    entity_id: !input light_entities
-    from:
-      - unavailable
-      - unknown
-    not_to:
-      - unavailable
-      - unknown
-    id: light_available
 
   # Maintenance mode changes
   - trigger: state

@@ -1,6 +1,6 @@
 # 🐠 Aquarium Control Blueprint
 
-**Version 1.1**
+**Version 1.2**
 
 A smart, reliable Home Assistant blueprint for automated aquarium lighting with sunrise/sunset simulation and synchronized CO2 injection.
 
@@ -18,7 +18,7 @@ A smart, reliable Home Assistant blueprint for automated aquarium lighting with 
 - 🌊 **Smooth Transitions** - Gentle brightness changes for stress-free lighting adjustments
 - 🔄 **Smart Updates** - 60-second incremental brightness updates for reliable Zigbee light control
 - 💾 **State Recovery** - Automatically recovers correct state after Home Assistant restarts
-- 🎛️ **Multiple Lights** - Support for controlling multiple synchronized light entities
+- 🎛️ **Flexible Light Targeting** - Select individual lights, or a whole area, device, floor or label
 - 🔌 **Availability Handling** - Automatically detects and recovers when lights or CO2 switch come back online
 - 🛟 **Fault Tolerant** - One unresponsive light never blocks the rest of the tank
 
@@ -26,7 +26,7 @@ A smart, reliable Home Assistant blueprint for automated aquarium lighting with 
 
 Click the button above to import the blueprint directly into your Home Assistant.
 
-**Requires Home Assistant 2024.10 or newer.**
+**Requires Home Assistant 2024.10 or newer** (enforced on import).
 
 ## 🔧 Required Helper Entities
 
@@ -72,7 +72,7 @@ Create a **Number** helper:
    - Daily start time entity (input_datetime you created)
    - Total light duration entity (input_number in hours)
    - Max brightness entity (input_number in %)
-4. **Configure your aquarium light entities** (required)
+4. **Select your aquarium lights** (required) - individual entities, or a whole area, device, floor or label
 5. **Configure durations:**
    - Transition duration (sunrise/sunset simulation, default: 30 minutes)
 6. **(Optional)** Adjust min brightness (default: 1)
@@ -164,7 +164,7 @@ Select your input_boolean in the **Maintenance Mode Toggle** field.
 - **Recovery:** Automatically recovers correct state after HA restart or device reconnection
 - **Zigbee Reliability:** 60-second updates prevent command flooding that can cause Zigbee issues
 - **Phase Calculation:** Recalculates current phase and brightness on every update for accuracy
-- **Availability Handling:** Skips unavailable devices and automatically syncs when they come back online
+- **Availability Handling:** Skips unavailable devices and syncs them on the next 60-second update once they return
 - **Fault Tolerance:** A light that fails to respond does not block the remaining lights or the CO2 switch in the same update
 - **Helper Fallback:** If the start time helper is unavailable, the schedule falls back to 08:00 instead of failing every update
 
