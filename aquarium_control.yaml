@@ -32,6 +32,7 @@ blueprint:
 
     **Maintenance mode:** Toggle to full brightness for feeding/cleaning, CO2 turns off for safety, then resume normal schedule.
   domain: automation
+  source_url: https://github.com/Diaoul/hass-aquarium-control/blob/main/aquarium_control.yaml
   input:
     light_and_schedule:
       name: Light & Schedule
@@ -168,7 +169,10 @@ variables:
   maintenance_mode_toggle: !input maintenance_mode_toggle
 
   # Extract values from helper entities
-  daily_start_time: "{{ states(daily_start_time_entity) }}"
+  # Fall back to a sane default so an unavailable helper cannot break every run
+  daily_start_time: >-
+    {% set value = states(daily_start_time_entity) %}
+    {{ value if value not in ['unknown', 'unavailable', 'None'] else '08:00:00' }}
   total_duration_hours: "{{ states(total_duration_entity) | float(9) }}"
 
   # Convert brightness from percentage (user input) to 0-255 scale (internal HA format)
@@ -176,9 +180,11 @@ variables:
   min_brightness: "{{ (min_brightness_pct * 2.55) | round(0) | int }}"
 
   # Convert durations to seconds for calculations
-  transition_duration_seconds: "{{ timedelta(**transition_duration).total_seconds() | int }}"
   total_duration_seconds: "{{ (total_duration_hours * 3600) | int }}"
-  total_cycle_seconds: "{{ total_duration_seconds }}"
+  # Clamp the transition so fade-in plus fade-out never exceed the total duration
+  transition_duration_seconds: >-
+    {{ [timedelta(**transition_duration).total_seconds() | int,
+        (total_duration_seconds / 2) | int] | min }}
   # Calculate duration at max brightness (total minus fade-in and fade-out)
   duration_at_max_seconds: "{{ [total_duration_seconds - (2 * transition_duration_seconds), 0] | max }}"
 
@@ -232,8 +238,8 @@ variables:
   # Calculate CO2 duration
   # CO2 starts co2_offset before light starts
   # CO2 ends co2_offset before light ends
-  # Duration = total_cycle_seconds (same as light cycle)
-  co2_duration_seconds: "{{ total_cycle_seconds }}"
+  # Duration = same as the light cycle
+  co2_duration_seconds: "{{ total_duration_seconds }}"
 
   # Calculate elapsed time from CO2 start (light start + co2_offset)
   # CO2 offset is negative, so this is earlier than light start
@@ -255,7 +261,7 @@ variables:
     {% set duration = co2_duration_seconds | float(0) %}
     {{ not maintenance_mode_active and elapsed >= 0 and elapsed < duration }}
 
-trigger:
+triggers:
   # Update brightness every 60 seconds
   - trigger: time_pattern
     minutes: "/1"
@@ -270,6 +276,9 @@ trigger:
   - trigger: state
     entity_id: !input light_entities
     from:
+      - unavailable
+      - unknown
+    not_to:
       - unavailable
       - unknown
     id: light_available
@@ -298,11 +307,14 @@ trigger:
     from:
       - unavailable
       - unknown
+    not_to:
+      - unavailable
+      - unknown
     id: co2_available
 
-condition: []
+conditions: []
 
-action:
+actions:
   # Update all lights
   - repeat:
       for_each: "{{ light_entities }}"
@@ -319,16 +331,20 @@ action:
             - if:
                 - "{{ is_state(repeat.item, 'on') }}"
               then:
-                - service: light.turn_off
+                - action: light.turn_off
+                  continue_on_error: true
                   target:
                     entity_id: "{{ repeat.item }}"
+                  data:
+                    transition: "{{ light_transition }}"
           else:
             # Turn on with calculated brightness (maintenance, fade-in, max, or fade-out)
             # Only call service if light is off or brightness differs
             - if:
                 - "{{ is_state(repeat.item, 'off') or state_attr(repeat.item, 'brightness') | int(0) != target_brightness }}"
               then:
-                - service: light.turn_on
+                - action: light.turn_on
+                  continue_on_error: true
                   target:
                     entity_id: "{{ repeat.item }}"
                   data:
@@ -343,7 +359,8 @@ action:
       - if:
           - "{{ co2_should_be_on and is_state(co2_switch, 'off') }}"
         then:
-          - service: homeassistant.turn_on
+          - action: homeassistant.turn_on
+            continue_on_error: true
             target:
               entity_id: "{{ co2_switch }}"
 
@@ -351,8 +368,10 @@ action:
       - if:
           - "{{ not co2_should_be_on and is_state(co2_switch, 'on') }}"
         then:
-          - service: homeassistant.turn_off
+          - action: homeassistant.turn_off
+            continue_on_error: true
             target:
               entity_id: "{{ co2_switch }}"
 
 mode: single
+max_exceeded: silent
