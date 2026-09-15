@@ -28,6 +28,12 @@ Click the button above to import the blueprint directly into your Home Assistant
 
 **Requires Home Assistant 2024.10 or newer** (enforced on import).
 
+> **Updating from 1.1 or earlier:** clear the **Lights** field in your automation
+> and select your lights again. The field changed from a list of entities to a
+> target, and Home Assistant merges the old value into the new one rather than
+> replacing it. Until you re-select, the automation will not load. Deleting the
+> automation and creating it again from the blueprint works too.
+
 ## 🔧 Required Helper Entities
 
 Before creating the automation, you need to create three input helper entities. These allow you to control the aquarium settings from your dashboard.

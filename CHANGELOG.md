@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.2.0] - 2026-09-15
 
+### Breaking
+
+- The Lights field must be cleared and re-selected after updating. It is now a
+  target rather than a list of entities, and Home Assistant merges the old
+  value into the new one instead of replacing it, leaving a stored input that
+  the target schema rejects. Until it is re-selected the automation fails to
+  load with `not a valid option at 'actions[0].then[0].then[0].target['0']'`.
+  Deleting the automation and creating it again from the blueprint also works.
+
 ### Added
 
 - Lights can now be selected by area, device, floor or label as well as by
