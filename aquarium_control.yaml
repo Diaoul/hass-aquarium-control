@@ -172,18 +172,9 @@ variables:
   light_transition: !input light_transition
   maintenance_mode_toggle: !input maintenance_mode_toggle
 
-  # Resolve the light target to a flat list of light entity ids.
-  #
-  # Home Assistant has no helper that expands a target into entities, so this
-  # is hand-rolled. It exists only so the action below can compare each light
-  # against its own current brightness; without that per-light check the
-  # blueprint would re-send a command to every light every 60 seconds, which is
-  # what floods Zigbee networks. If you ever drop the per-light comparison,
-  # delete this and pass `target: !input light_entities` straight to the action
-  # instead, which is the idiomatic form.
-  #
-  # Accepts a plain entity id or list (as stored by older versions of this
-  # blueprint) as well as the entity/device/area/floor/label target dict.
+  # Flatten the target (or a bare id/list, as older versions stored) to light
+  # entity ids. Hand-rolled because Home Assistant has no target expansion, and
+  # only needed for the per-light brightness check; drop both together.
   light_entities: >-
     {% set t = light_target %}
     {% set t = {'entity_id': [t]} if t is string
@@ -217,20 +208,16 @@ variables:
   max_brightness: "{{ (states(max_brightness_entity) | int(100) * 2.55) | round(0) | int }}"
   min_brightness: "{{ (min_brightness_pct * 2.55) | round(0) | int }}"
 
-  # Convert durations to seconds for calculations
   total_duration_seconds: "{{ (total_duration_hours * 3600) | int }}"
   # Clamp the transition so fade-in plus fade-out never exceed the total duration
   transition_duration_seconds: >-
     {{ [timedelta(**transition_duration).total_seconds() | int,
         (total_duration_seconds / 2) | int] | min }}
-  # Calculate duration at max brightness (total minus fade-in and fade-out)
   duration_at_max_seconds: "{{ [total_duration_seconds - (2 * transition_duration_seconds), 0] | max }}"
 
-  # Check if maintenance mode is active
   maintenance_mode_active: >-
     {{ maintenance_mode_toggle | length > 0 and is_state(maintenance_mode_toggle, 'on') }}
 
-  # Calculate elapsed time from daily start
   # If we're before today's start time, check yesterday's cycle
   elapsed_seconds: >-
     {% set start_today = today_at(daily_start_time) %}
@@ -242,7 +229,6 @@ variables:
       {{ elapsed }}
     {% endif %}
 
-  # Calculate target brightness based on time and maintenance mode (0-255 scale)
   target_brightness: >-
     {% if maintenance_mode_active %}
       255
@@ -270,16 +256,13 @@ variables:
   co2_switch: !input co2_switch
   co2_offset: !input co2_offset
 
-  # Convert CO2 offset to seconds
   co2_offset_seconds: "{{ timedelta(**co2_offset).total_seconds() | int }}"
 
-  # Calculate CO2 duration
   # CO2 starts co2_offset before light starts
   # CO2 ends co2_offset before light ends
   # Duration = same as the light cycle
   co2_duration_seconds: "{{ total_duration_seconds }}"
 
-  # Calculate elapsed time from CO2 start (light start + co2_offset)
   # CO2 offset is negative, so this is earlier than light start
   elapsed_from_co2_start: >-
     {% set light_start_today = today_at(daily_start_time) %}
@@ -293,29 +276,26 @@ variables:
       {{ elapsed }}
     {% endif %}
 
-  # Determine if CO2 should be ON (off during maintenance for safety)
+  # Forced off during maintenance, for safety while working in the tank
   co2_should_be_on: >-
     {% set elapsed = elapsed_from_co2_start | float(0) %}
     {% set duration = co2_duration_seconds | float(0) %}
     {{ not maintenance_mode_active and elapsed >= 0 and elapsed < duration }}
 
 triggers:
-  # Update brightness every 60 seconds
   - trigger: time_pattern
     minutes: "/1"
     id: periodic_update
 
-  # HA restart recovery
   - trigger: homeassistant
     event: start
     id: ha_start
 
-  # Maintenance mode changes
   - trigger: state
     entity_id: !input maintenance_mode_toggle
     id: maintenance_mode_change
 
-  # Helper entity changes (for responsive dashboard control)
+  # Re-run immediately on dashboard changes instead of waiting for the next tick
   - trigger: state
     entity_id: !input daily_start_time
     id: start_time_change
@@ -328,7 +308,6 @@ triggers:
     entity_id: !input max_brightness
     id: brightness_change
 
-  # CO2 switch becomes available after being offline
   - trigger: state
     entity_id: !input co2_switch
     from:
@@ -350,15 +329,12 @@ actions:
   - repeat:
       for_each: "{{ light_entities }}"
       sequence:
-        # Skip unavailable lights
         - condition: template
           value_template: "{{ has_value(repeat.item) }}"
 
-        # Apply brightness based on target_brightness
         - if:
             - "{{ target_brightness == 0 }}"
           then:
-            # Only turn off if currently on
             - if:
                 - "{{ is_state(repeat.item, 'on') }}"
               then:
@@ -369,8 +345,6 @@ actions:
                   data:
                     transition: "{{ light_transition }}"
           else:
-            # Turn on with calculated brightness (maintenance, fade-in, max, or fade-out)
-            # Only call service if light is off or brightness differs
             - if:
                 - "{{ is_state(repeat.item, 'off') or state_attr(repeat.item, 'brightness') | int(0) != target_brightness }}"
               then:
@@ -382,11 +356,9 @@ actions:
                     brightness: "{{ target_brightness }}"
                     transition: "{{ light_transition }}"
 
-  # Update CO2 switch (if configured and available)
   - if:
       - "{{ co2_switch | length > 0 and has_value(co2_switch) }}"
     then:
-      # Turn CO2 on if needed
       - if:
           - "{{ co2_should_be_on and is_state(co2_switch, 'off') }}"
         then:
@@ -395,7 +367,6 @@ actions:
             target:
               entity_id: "{{ co2_switch }}"
 
-      # Turn CO2 off if needed
       - if:
           - "{{ not co2_should_be_on and is_state(co2_switch, 'on') }}"
         then:
