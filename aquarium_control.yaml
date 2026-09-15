@@ -309,6 +309,7 @@ actions:
   - if:
       - >-
         {{ target_brightness != previous_brightness
+           or trigger is not defined
            or trigger.id | default('', true) != 'periodic_update' }}
     then:
       - if:
