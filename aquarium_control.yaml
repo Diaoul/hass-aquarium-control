@@ -17,10 +17,10 @@ blueprint:
     - 🔧 Maintenance mode for tank work (full brightness override, CO2 off)
     - 🫧 CO2 injection control synchronized with lighting
     - ⏰ CO2 time offset (default: 60 min before lights)
-    - 🔄 Smooth 60-second incremental updates (reliable for Zigbee lights)
+    - 🔄 Brightness recalculated every 60 seconds, sent only when it changes
     - 💾 Automatic state recovery after Home Assistant restarts
-    - 🎛️ Support for multiple synchronized lights
-    - 🔌 Automatic availability detection and recovery
+    - 🎛️ Lights picked individually, or by area, device, floor or label
+    - 🔌 Recovery after restarts, and when the CO2 switch comes back online
 
     **How it works:**
     1. CO2 turns on at configured offset (default: 60 min before light)

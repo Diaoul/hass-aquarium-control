@@ -20,7 +20,7 @@ A smart, reliable Home Assistant blueprint for automated aquarium lighting with 
 - 💾 **State Recovery** - Automatically recovers correct state after Home Assistant restarts
 - 🎛️ **Flexible Light Targeting** - Select individual lights, or a whole area, device, floor or label
 - 🔌 **Availability Handling** - Recovers automatically after Home Assistant restarts and when the CO2 switch returns
-- 🛟 **Fault Tolerant** - One unresponsive light never blocks the rest of the tank
+- 🛟 **Fault Tolerant** - A failing light call does not abort the CO2 update, or vice versa
 
 ## 📦 Installation
 
@@ -99,7 +99,7 @@ The blueprint creates a natural lighting cycle for your aquarium:
 6. **Repeats every day** at the configured start time
 
 **Transition Behavior:**
-- At cycle start: Lights instantly turn on to minimum brightness, then smoothly fade to maximum
+- At cycle start: Lights turn on at minimum brightness, then fade smoothly to maximum
 - During cycle: Smooth brightness changes every minute with gentle 5-second transitions
 - At cycle end: Lights smoothly fade to minimum brightness, then transition off
 - This creates natural sunrise/sunset simulation while ensuring lights are completely off when not in use
