@@ -204,6 +204,16 @@ variables:
       {{ elapsed }}
     {% endif %}
 
+  # previous_brightness below is computed from the CURRENT helper values, so a
+  # change to any of them moves both values together and the comparison sees
+  # nothing. Detect that from the entities themselves rather than relying on the
+  # triggers to be the only thing that catches it.
+  inputs_just_changed: >-
+    {%- set ids = [daily_start_time_entity, total_duration_entity, max_brightness_entity]
+        + ([maintenance_mode_toggle] if maintenance_mode_toggle | length > 0 else []) -%}
+    {%- set changed = expand(ids) | map(attribute='last_changed') | list -%}
+    {{ changed | length > 0 and (now() - (changed | max)).total_seconds() < 60 }}
+
   # Brightness for this minute and the previous one. The lights are only
   # commanded when the two differ, so a steady plateau sends nothing at all.
   brightness_pair: >-
@@ -309,6 +319,7 @@ actions:
   - if:
       - >-
         {{ target_brightness != previous_brightness
+           or inputs_just_changed
            or trigger is not defined
            or trigger.id | default('', true) != 'periodic_update' }}
     then:

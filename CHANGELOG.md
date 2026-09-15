@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   automation. The hours at maximum brightness now send no commands at all.
 - Use `has_value()` for availability checks instead of comparing states against
   a hand-written unavailable/unknown list
+- Changing a helper entity forces the lights to be re-commanded. The brightness
+  for the previous minute is recomputed from the current helper values, so a
+  change to one moves both sides of the comparison and would otherwise go
+  unnoticed until the next scheduled brightness change.
 - An unavailable start time helper now aborts the run via a condition, rather
   than falling back to 08:00 and driving the tank on the wrong schedule
 
