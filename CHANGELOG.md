@@ -5,12 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.0] - 2026-09-14
+## [1.2.0] - 2026-09-15
 
 ### Added
 
 - Lights can now be selected by area, device, floor or label as well as by
-  individual entity. Existing configurations keep working unchanged.
+  individual entity
 - `allow_negative` on the CO2 offset selector, so the negative offset the
   blueprint depends on is actually expressible in the UI
 - `homeassistant.min_version`, declaring the Home Assistant 2024.10 requirement
@@ -18,12 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Light actions take the target directly rather than expanding it into entities
+  and looping over them
+- Lights are only commanded when the calculated brightness differs from the
+  previous minute, or when something other than the minute tick ran the
+  automation. The hours at maximum brightness now send no commands at all.
 - Use `has_value()` for availability checks instead of comparing states against
   a hand-written unavailable/unknown list
 - An unavailable start time helper now aborts the run via a condition, rather
   than falling back to 08:00 and driving the tank on the wrong schedule
-- Removed the light availability trigger, which cannot accept a target. Lights
-  coming back online are picked up by the next 60-second update instead.
+
+### Removed
+
+- The per-light brightness comparison, and with it the light availability
+  trigger. A light that is changed by hand, or that goes offline and returns,
+  is corrected at the next brightness change rather than within 60 seconds.
 
 ## [1.1.0] - 2026-09-14
 

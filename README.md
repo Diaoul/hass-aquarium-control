@@ -16,10 +16,10 @@ A smart, reliable Home Assistant blueprint for automated aquarium lighting with 
 - 🫧 **CO2 Synchronization** - CO2 injection turns on/off synchronized with lighting schedule
 - ⏰ **CO2 Time Offset** - Configurable offset (default: 60 min before lights) for optimal CO2 buildup before photosynthesis
 - 🌊 **Smooth Transitions** - Gentle brightness changes for stress-free lighting adjustments
-- 🔄 **Smart Updates** - 60-second incremental brightness updates for reliable Zigbee light control
+- 🔄 **Smart Updates** - Brightness is recalculated every 60 seconds, but only sent when it actually changes
 - 💾 **State Recovery** - Automatically recovers correct state after Home Assistant restarts
 - 🎛️ **Flexible Light Targeting** - Select individual lights, or a whole area, device, floor or label
-- 🔌 **Availability Handling** - Automatically detects and recovers when lights or CO2 switch come back online
+- 🔌 **Availability Handling** - Recovers automatically after Home Assistant restarts and when the CO2 switch returns
 - 🛟 **Fault Tolerant** - One unresponsive light never blocks the rest of the tank
 
 ## 📦 Installation
@@ -160,13 +160,13 @@ Select your input_boolean in the **Maintenance Mode Toggle** field.
 
 ## ⚙️ Technical Details
 
-- **Update Frequency:** Every 60 seconds for smooth, reliable transitions
-- **Recovery:** Automatically recovers correct state after HA restart or device reconnection
-- **Zigbee Reliability:** 60-second updates prevent command flooding that can cause Zigbee issues
-- **Phase Calculation:** Recalculates current phase and brightness on every update for accuracy
-- **Availability Handling:** Skips unavailable devices and syncs them on the next 60-second update once they return
-- **Fault Tolerance:** A light that fails to respond does not block the remaining lights or the CO2 switch in the same update
-- **Helper Fallback:** If the start time helper is unavailable, the schedule falls back to 08:00 instead of failing every update
+- **Update Frequency:** Brightness is recalculated every 60 seconds
+- **Zigbee Reliability:** A command is only sent when the brightness changed since the previous minute, so the hours at maximum brightness send nothing at all
+- **Phase Calculation:** Recalculates current phase and brightness on every update, so the schedule is never accumulated or drifted
+- **Recovery:** A Home Assistant restart, or any change to the helper entities or maintenance mode, forces the lights to be re-commanded immediately
+- **Availability Handling:** A light that goes offline and returns is corrected at the next brightness change rather than instantly — during the hours at maximum brightness that can be a long wait. The CO2 switch has its own availability trigger and recovers immediately.
+- **Fault Tolerance:** A failing light call does not abort the CO2 update, or vice versa
+- **Helper Guard:** If the start time helper is unavailable the run is skipped, rather than driving the tank on a wrong schedule
 
 ## 🤝 Support
 

@@ -163,7 +163,6 @@ blueprint:
 
 variables:
   # Input bindings
-  light_target: !input light_entities
   daily_start_time_entity: !input daily_start_time
   total_duration_entity: !input total_duration
   max_brightness_entity: !input max_brightness
@@ -171,30 +170,6 @@ variables:
   min_brightness_pct: !input min_brightness
   light_transition: !input light_transition
   maintenance_mode_toggle: !input maintenance_mode_toggle
-
-  # Flatten the target (or a bare id/list, as older versions stored) to light
-  # entity ids. Hand-rolled because Home Assistant has no target expansion, and
-  # only needed for the per-light brightness check; drop both together.
-  light_entities: >-
-    {% set t = light_target %}
-    {% set t = {'entity_id': [t]} if t is string
-               else ({'entity_id': t | list} if (t is sequence and t is not mapping) else t) %}
-    {% set ent = t.entity_id | default([], true) %}
-    {% set ent = [ent] if ent is string else ent | list %}
-    {% set dev = t.device_id | default([], true) %}
-    {% set dev = [dev] if dev is string else dev | list %}
-    {% set are = t.area_id | default([], true) %}
-    {% set are = [are] if are is string else are | list %}
-    {% set lab = t.label_id | default([], true) %}
-    {% set lab = [lab] if lab is string else lab | list %}
-    {% set flo = t.floor_id | default([], true) %}
-    {% set flo = [flo] if flo is string else flo | list %}
-    {{ (ent
-        + (dev | map('device_entities') | sum(start=[]) | list)
-        + (are | map('area_entities') | sum(start=[]) | list)
-        + (lab | map('label_entities') | sum(start=[]) | list)
-        + (flo | map('floor_areas') | sum(start=[]) | map('area_entities') | sum(start=[]) | list))
-       | select('match', 'light\.') | unique | list }}
 
   # Extract values from helper entities
   # The placeholder keeps today_at() from raising while variables render; the
@@ -229,28 +204,33 @@ variables:
       {{ elapsed }}
     {% endif %}
 
-  target_brightness: >-
-    {% if maintenance_mode_active %}
-      255
-    {% else %}
-      {% set e = elapsed_seconds | float(0) %}
-      {% set t = transition_duration_seconds | float(0) %}
-      {% set d = duration_at_max_seconds | float(0) %}
-      {% set total = (2 * t + d) %}
-      {% set min_b = min_brightness | int %}
-      {% set max_b = max_brightness | int %}
-
-      {% if e < 0 or e >= total %}
-        0
-      {% elif e < t %}
-        {{ [(min_b + (max_b - min_b) * (e / [t, 1] | max)) | int, 1] | max }}
-      {% elif e < (t + d) %}
-        {{ max_b }}
-      {% else %}
-        {% set fade_elapsed = e - t - d %}
-        {{ (min_b + (max_b - min_b) * (1 - fade_elapsed / [t, 1] | max)) | int }}
-      {% endif %}
-    {% endif %}
+  # Brightness for this minute and the previous one. The lights are only
+  # commanded when the two differ, so a steady plateau sends nothing at all.
+  brightness_pair: >-
+    {%- macro brightness(e) -%}
+      {%- if maintenance_mode_active -%}
+        255
+      {%- else -%}
+        {%- set t = transition_duration_seconds | float(0) -%}
+        {%- set d = duration_at_max_seconds | float(0) -%}
+        {%- set total = 2 * t + d -%}
+        {%- set min_b = min_brightness | int -%}
+        {%- set max_b = max_brightness | int -%}
+        {%- if e < 0 or e >= total -%}
+          0
+        {%- elif e < t -%}
+          {{ [(min_b + (max_b - min_b) * (e / [t, 1] | max)) | int, 1] | max }}
+        {%- elif e < (t + d) -%}
+          {{ max_b }}
+        {%- else -%}
+          {{ (min_b + (max_b - min_b) * (1 - (e - t - d) / [t, 1] | max)) | int }}
+        {%- endif -%}
+      {%- endif -%}
+    {%- endmacro -%}
+    {%- set e = elapsed_seconds | float(0) -%}
+    {{ [brightness(e) | int, brightness(e - 60) | int] }}
+  target_brightness: "{{ brightness_pair[0] }}"
+  previous_brightness: "{{ brightness_pair[1] }}"
 
   # CO2 control variables
   co2_switch: !input co2_switch
@@ -324,37 +304,28 @@ conditions:
     value_template: "{{ start_time_available }}"
 
 actions:
-  # Update each light individually, so a light already at the target brightness
-  # is left alone rather than being re-commanded every 60 seconds
-  - repeat:
-      for_each: "{{ light_entities }}"
-      sequence:
-        - condition: template
-          value_template: "{{ has_value(repeat.item) }}"
-
-        - if:
-            - "{{ target_brightness == 0 }}"
-          then:
-            - if:
-                - "{{ is_state(repeat.item, 'on') }}"
-              then:
-                - action: light.turn_off
-                  continue_on_error: true
-                  target:
-                    entity_id: "{{ repeat.item }}"
-                  data:
-                    transition: "{{ light_transition }}"
-          else:
-            - if:
-                - "{{ is_state(repeat.item, 'off') or state_attr(repeat.item, 'brightness') | int(0) != target_brightness }}"
-              then:
-                - action: light.turn_on
-                  continue_on_error: true
-                  target:
-                    entity_id: "{{ repeat.item }}"
-                  data:
-                    brightness: "{{ target_brightness }}"
-                    transition: "{{ light_transition }}"
+  # Only command the lights when the brightness actually changed, or when
+  # something other than the minute tick ran us (restart, settings change)
+  - if:
+      - >-
+        {{ target_brightness != previous_brightness
+           or trigger.id | default('', true) != 'periodic_update' }}
+    then:
+      - if:
+          - "{{ target_brightness > 0 }}"
+        then:
+          - action: light.turn_on
+            continue_on_error: true
+            target: !input light_entities
+            data:
+              brightness: "{{ target_brightness }}"
+              transition: "{{ light_transition }}"
+        else:
+          - action: light.turn_off
+            continue_on_error: true
+            target: !input light_entities
+            data:
+              transition: "{{ light_transition }}"
 
   - if:
       - "{{ co2_switch | length > 0 and has_value(co2_switch) }}"
