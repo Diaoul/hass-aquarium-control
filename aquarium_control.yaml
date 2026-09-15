@@ -320,7 +320,6 @@ actions:
       - >-
         {{ target_brightness != previous_brightness
            or inputs_just_changed
-           or trigger is not defined
            or trigger.id | default('', true) != 'periodic_update' }}
     then:
       - if:
