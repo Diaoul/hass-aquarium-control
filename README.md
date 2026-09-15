@@ -1,6 +1,6 @@
 # 🐠 Aquarium Control Blueprint
 
-**Version 1.2**
+**Version 2.0**
 
 A smart, reliable Home Assistant blueprint for automated aquarium lighting with sunrise/sunset simulation and synchronized CO2 injection.
 
